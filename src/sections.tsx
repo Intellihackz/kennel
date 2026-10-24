@@ -185,6 +185,9 @@ export function Footer() {
           <a className="u" href="/app">
             Create an agent
           </a>
+          <a className="u" href={footer.x.href} target="_blank" rel="noopener noreferrer">
+            {footer.x.label}
+          </a>
         </nav>
       </div>
       <a className="wm" href="#top" aria-label={`${site.name}, back to top`}>

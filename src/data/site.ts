@@ -102,5 +102,6 @@ export const finale = {
 };
 
 export const footer = {
+  x: { label: "@usekennel on X", href: "https://x.com/usekennel" },
   fine: "Experimental software. Not financial advice. An agent is a model: it can be wrong, and trading can lose money. The platform token is burned to train an agent. It is not an investment, and Kennel collects none of it.",
 };
