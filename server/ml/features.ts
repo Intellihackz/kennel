@@ -18,6 +18,7 @@ export const FEATURE_SETS: Record<string, number[]> = {
 };
 export const DEFAULT_SET = "general";
 export const FEATURE_LABELS: Record<string, string> = {
+  act_ratio: "how much trading is speeding up", burst_1m: "trading in the last minute versus the last five", newbuyer_ratio: "share of buyers that are new", flow_per_trade: "average net buying per trade",
   age_min: "token age", trades_total: "total trades", trades_1m: "trades in the last minute", trades_5m: "trades in the last 5 minutes", trades_30m: "trades in the last 30 minutes",
   buyers_total: "distinct buyers so far", new_buyers_5m: "new buyers in the last 5 minutes", buy_ratio_5m: "share of buys in the last 5 minutes", net_flow_5m: "net buying in the last 5 minutes",
   net_flow_30m: "net buying in the last 30 minutes", avg_buy_5m: "average buy size", max_buy_5m: "largest recent buy", progress: "progress toward graduation", ret_5m: "price change over 5 minutes",
@@ -41,14 +42,14 @@ const lastLE = (ts: Float64Array, n: number, t: number) => {
 /** Walks a token's life minute by minute and yields the feature vector at each active moment. */
 export type Sample = { t: number; x: Float64Array; ret?: number; y?: number };
 
-export function buildSamples(s: Series, opts: { horizonH: number; x: number; maxHours?: number; until?: number; labelled: boolean; single?: number }): Sample[] {
+export function buildSamples(s: Series, opts: { horizonH: number; x: number; maxHours?: number; minHours?: number; until?: number; labelled: boolean; single?: number; quiet?: boolean }): Sample[] {
   const out: Sample[] = [];
   const n = s.n;
   if (n === 0) return out;
   const maxT = s.launchedTs + (opts.maxHours ?? 24) * 3600;
   const times: number[] = [];
   if (opts.single !== undefined) times.push(opts.single);
-  else for (let T = s.launchedTs + 60; T <= maxT; T += 60) times.push(T);
+  else for (let T = s.launchedTs + Math.max(60, (opts.minHours ?? 0) * 3600); T <= maxT; T += 60) times.push(T);
 
   // running state
   const balance = new Map<string, number>();
@@ -82,7 +83,8 @@ export function buildSamples(s: Series, opts: { horizonH: number; x: number; max
     // only moments with some activity in the last 5 minutes (alerts only ever fire on live trades)
     const i5 = lastLE(s.ts, n, T - 300) + 1;
     const n5 = j - i5;
-    if (n5 === 0) continue;
+    // training only ever looks at moments with trading in the last five minutes; `quiet` lets a live question about a quiet token be read too
+    if (n5 === 0 && !opts.quiet) continue;
     if (opts.until !== undefined && T > opts.until) break;
 
     const i1 = lastLE(s.ts, n, T - 60) + 1;
@@ -130,7 +132,7 @@ export function buildSamples(s: Series, opts: { horizonH: number; x: number; max
     x[c++] = j - i30;
     x[c++] = firstBuy.size;
     x[c++] = newB5;
-    x[c++] = buys5 / n5;
+    x[c++] = n5 ? buys5 / n5 : 0.5;
     x[c++] = flow5;
     x[c++] = flow30;
     x[c++] = buys5 ? buyQ5 / buys5 : 0;
@@ -151,7 +153,7 @@ export function buildSamples(s: Series, opts: { horizonH: number; x: number; max
     x[c++] = n5 / (j - i30 + 1); // act_ratio: is trading speeding up
     x[c++] = (j - i1) / (n5 + 1); // burst_1m
     x[c++] = newB5 / (firstBuy.size + 1); // newbuyer_ratio
-    x[c++] = flow5 / n5; // flow_per_trade
+    x[c++] = n5 ? flow5 / n5 : 0; // flow_per_trade
 
     const sample: Sample = { t: T, x };
     if (opts.labelled) {

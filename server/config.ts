@@ -10,6 +10,8 @@ export const CFG = {
   dbPath: env.DB_PATH ?? "data/kennel.db",
   distDir: env.DIST_DIR ?? "dist",
   trustProxy: env.TRUST_PROXY === "1",
+  // which header carries the visitor's address behind your host's proxy. Fly: fly-client-ip. Railway and most others: x-forwarded-for.
+  clientIpHeader: (env.CLIENT_IP_HEADER ?? "x-forwarded-for").toLowerCase(),
   production: env.NODE_ENV === "production",
 
   // the indexer

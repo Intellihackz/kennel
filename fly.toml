@@ -1,0 +1,46 @@
+# Kennel on Fly.io. One machine only: the indexer and the job runner must not run twice, and the database is one file on a volume.
+#   fly launch --no-deploy --copy-config      (pick a free app name when it asks)
+#   fly volumes create kennel_data --size 3 --region ams
+#   fly secrets set SESSION_SECRET=$(openssl rand -hex 32)
+#   fly deploy
+# See DEPLOY.md for the whole walkthrough.
+app = 'kennel'
+primary_region = 'ams'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+  [build.args]
+    SITE_URL = ''   # your https address, like https://kennel.example, then redeploy
+    X_HANDLE = ''   # your X account without the @
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '8788'
+  DB_PATH = '/data/kennel.db'
+  TRUST_PROXY = '1'
+  CLIENT_IP_HEADER = 'fly-client-ip'
+  BACKFILL_DAYS = '3'
+  # PLATFORM_TOKEN = '0x...'   # set when the platform token exists. Until then production refuses to start orders.
+
+[mounts]
+  source = 'kennel_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 8788
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '60s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '1gb'

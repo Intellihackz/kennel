@@ -1,5 +1,6 @@
-// "Ask your agent": score one token right now with a ready agent, and say why. It only judges what the agent learned to judge,
-// tokens in their first 24 hours that are trading, and says so plainly when it cannot. Nothing is stored about the question.
+// "Ask your agent": score any token right now with a ready agent, and say why. An agent learned from tokens in their first 24 hours that
+// were trading, so for an older or quieter token it is outside what it practised on. It still answers, and says so plainly: in our own
+// checks (SPEC.md) agents were no better than chance on tokens older than a day. Nothing is stored about the question.
 import { CFG } from "./config.ts";
 import type { Db } from "./db.ts";
 import type { Indexer } from "./indexer.ts";
@@ -15,8 +16,10 @@ export type AskResult =
   | { ok: false; reason: string; name?: string; symbol?: string }
   | {
       ok: true; token: string; curve: string; name: string; symbol: string; ageMinutes: number; probability: number; threshold: number; sensitivity: string;
-      verdict: "above" | "below"; up: Reason[]; down: Reason[]; price: number; trades: number; lastTradeSecondsAgo: number;
+      verdict: "above" | "below"; scope: "inside" | "outside"; notes: string[]; up: Reason[]; down: Reason[]; price: number; trades: number; lastTradeSecondsAgo: number;
     };
+
+const span = (secs: number) => (secs < 5400 ? `${Math.max(1, Math.round(secs / 60))} minutes` : secs < 172800 ? `${Math.round(secs / 3600)} hours` : `${Math.round(secs / 86400)} days`);
 
 export async function askAgent(db: Db, ix: Indexer, owner: string, agentId: string, tokenAddr: string): Promise<AskResult> {
   const a = getOwned(db, owner, agentId);
@@ -31,14 +34,17 @@ export async function askAgent(db: Db, ix: Indexer, owner: string, agentId: stri
   const meta = await ix.meta(t.address);
   const now = Math.floor(Date.now() / 1000);
   const ageH = (now - t.launched_ts) / 3600;
-  if (ageH > 24) return { ok: false, ...meta, reason: `Your agent judges tokens in their first 24 hours, and this one launched ${ageH < 48 ? `${Math.round(ageH)} hours` : `${Math.round(ageH / 24)} days`} ago. Ask about a newer token.` };
-  if (await ix.graduated(t.address)) return { ok: false, ...meta, reason: "This token has graduated, so it no longer trades on the curve your agent learned from." };
-  await ix.backfillToken(t.address); // a young token is normally complete already; this covers one that was added just now
+  if (await ix.graduated(t.address)) return { ok: false, ...meta, reason: "This token has graduated. It no longer trades on the curve your agent learned from, and Kennel does not read the market it moved to." };
+  await ix.backfillToken(t.address); // an older token, or one added just now, may not be indexed yet
   const s = loadSeries(db, t.address);
-  if (!s || s.n === 0) return { ok: false, ...meta, reason: "There are no trades for this token yet, so there is nothing to judge." };
+  if (!s || s.n === 0) return { ok: false, ...meta, reason: "This token has no trades yet, so there is nothing to read." };
   const lastAgo = now - s.ts[s.n - 1];
-  const smp = buildSamples(s, { horizonH: CFG.objective.hours, x: CFG.objective.x, labelled: false, single: now });
-  if (smp.length === 0) return { ok: false, ...meta, reason: `The last trade was ${lastAgo < 3600 ? `${Math.max(1, Math.round(lastAgo / 60))} minutes` : `${Math.round(lastAgo / 3600)} hours`} ago. Your agent only judges a token that has traded in the last 5 minutes, so there is nothing to read right now.` };
+  const smp = buildSamples(s, { horizonH: CFG.objective.hours, x: CFG.objective.x, labelled: false, single: now, quiet: true });
+  if (smp.length === 0) return { ok: false, ...meta, reason: "This token has no trades yet, so there is nothing to read." };
+
+  const notes: string[] = [];
+  if (ageH > 24) notes.push(`This token is ${ageH < 48 ? `${Math.round(ageH)} hours` : `${Math.round(ageH / 24)} days`} old. I only learned from the first day of a token's life, so for one this old I have no track record. In our own checks, agents were no better than chance on tokens older than a day. Treat this as a rough guess.`);
+  if (lastAgo > 300) notes.push(`Nothing has traded for ${span(lastAgo)}. I learned from moments with trading in the last 5 minutes, so there is little for me to read. Tokens this quiet rarely move, and I usually say low.`);
 
   const x = smp[0].x;
   const p = calibrated(model, x);
@@ -52,6 +58,6 @@ export async function askAgent(db: Db, ix: Indexer, owner: string, agentId: stri
   const down = contrib.filter((r) => r.c < -0.02).sort((u, v) => u.c - v.c).slice(0, 2).map(reason);
   return {
     ok: true, token: t.address, curve: t.curve, ...meta, ageMinutes: Math.round((now - t.launched_ts) / 60), probability: p, threshold: thr, sensitivity: sens,
-    verdict: p >= thr ? "above" : "below", up, down, price: s.price[s.n - 1], trades: s.n, lastTradeSecondsAgo: lastAgo,
+    verdict: p >= thr ? "above" : "below", scope: notes.length ? "outside" : "inside", notes, up, down, price: s.price[s.n - 1], trades: s.n, lastTradeSecondsAgo: lastAgo,
   };
 }

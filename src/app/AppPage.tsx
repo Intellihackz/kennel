@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bar } from "../Frame";
 import { startWorkshop, type WorkshopHandle } from "../motion/workshop";
 import { sceneMarkup } from "../motion/scene";
-import { api, ApiError, type AgentView, type AlertView, type AskResult, type Config, type Eligibility, type MyBurns, type Order, type TestReport } from "./api";
+import { api, ApiError, type AgentView, type AlertView, type AskResult, type Config, type Eligibility, type LiveToken, type MyBurns, type Order, type TestReport } from "./api";
 import { toast } from "./toast";
 import { activeProvider, connect, disconnect, ensureChain, initWallets, shortAddr, useWallet } from "./wallet";
 
@@ -487,52 +487,116 @@ function TestTab({ agent, refresh }: { agent: AgentView; refresh: () => Promise<
 
 
 // ---------------------------------------------------------------- ask
+type Msg = { id: number; from: "you" | "agent"; at: number; token?: string; res?: AskResult; pending?: boolean; failed?: boolean };
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+/** The answer, written as the agent would say it. */
+function Answer({ res, agent }: { res: AskResult; agent: AgentView }) {
+  if (!res.ok)
+    return (
+      <>
+        {res.name && <p><b>{res.name}</b> <span className="muted">{res.symbol ? `$${res.symbol}` : ""}</span></p>}
+        <p>{res.reason}</p>
+      </>
+    );
+  const above = res.verdict === "above";
+  return (
+    <>
+      <p>
+        <b>{res.name || "That token"}</b> <span className="muted">{res.symbol ? `$${res.symbol}` : ""}</span>
+        <span className="muted small"> launched {res.ageMinutes < 90 ? `${res.ageMinutes} min` : res.ageMinutes < 2880 ? `${Math.round(res.ageMinutes / 60)} h` : `${Math.round(res.ageMinutes / 1440)} days`} ago, {fmt(res.trades)} trades, last one {res.lastTradeSecondsAgo < 90 ? "just now" : res.lastTradeSecondsAgo < 5400 ? `${Math.round(res.lastTradeSecondsAgo / 60)} min ago` : res.lastTradeSecondsAgo < 172800 ? `${Math.round(res.lastTradeSecondsAgo / 3600)} h ago` : `${Math.round(res.lastTradeSecondsAgo / 86400)} days ago`}.</span>
+      </p>
+      <div className="rep">
+        <Meter label="My chance" value={res.probability} tone="agent" />
+        <Meter label={`I speak up above (${res.sensitivity})`} value={res.threshold} />
+      </div>
+      {res.notes.map((n) => <p key={n} className="scope-note small">{n}</p>)}
+      <p><b>{res.scope === "outside" ? "I would not raise an alert for a token like this, so read my number as a rough guess." : above ? "That is above my alert threshold. I would speak up about this one right now." : "That is below my alert threshold. I would stay quiet about this one right now."}</b></p>
+      {res.up.length > 0 && <p className="small"><span className="muted">Pushing me up: </span>{res.up.map((r) => `${r.label}: ${r.value}`).join(" · ")}</p>}
+      {res.down.length > 0 && <p className="small"><span className="muted">Pulling me down: </span>{res.down.map((r) => `${r.label}: ${r.value}`).join(" · ")}</p>}
+      {res.up.length === 0 && res.down.length === 0 && <p className="small muted">No single signal stood out.</p>}
+      <p className="muted small">My chance is my own estimate that buying now returns at least {Math.round((agent.model?.objective.x ?? 0.2) * 100)}% within {agent.model?.objective.hours ?? 3} hours after costs. It is not a promise, and I can be wrong.</p>
+      <a className="u small" href={`https://ponsfamily.com/launchpad/${res.token}`} target="_blank" rel="noreferrer">Open on Pons</a>
+    </>
+  );
+}
+
 function Ask({ agent }: { agent: AgentView }) {
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [res, setRes] = useState<AskResult | null>(null);
-  const ask = async () => {
-    const ca = input.trim();
-    setRes(null);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [live, setLive] = useState<LiveToken[]>([]);
+  const next = useRef(1);
+  const thread = useRef<HTMLDivElement>(null);
+  const busy = msgs.some((m) => m.pending);
+
+  useEffect(() => {
+    api.liveTokens().then(setLive).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const el = thread.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [msgs]);
+
+  const send = async (raw: string) => {
+    const ca = raw.trim();
+    if (busy) return;
     if (!/^0x[0-9a-fA-F]{40}$/.test(ca)) return toast("That is not a contract address. It starts with 0x and has 40 more characters.");
-    setBusy(true);
+    setInput("");
+    const reply = next.current + 1;
+    setMsgs((m) => [...m, { id: next.current, from: "you", at: Date.now(), token: ca }, { id: reply, from: "agent", at: Date.now(), pending: true }]);
+    next.current += 2;
     try {
-      setRes(await api.ask(agent.id, ca));
+      const res = await api.ask(agent.id, ca);
+      setMsgs((m) => m.map((x) => (x.id === reply ? { ...x, pending: false, res, at: Date.now() } : x)));
     } catch (e) {
       toast(errText(e));
-    } finally {
-      setBusy(false);
+      setMsgs((m) => m.map((x) => (x.id === reply ? { ...x, pending: false, failed: true } : x)));
     }
   };
+
   return (
-    <div className="panel">
-      <h2>Ask your agent</h2>
-      <p className="muted small">Paste a token that launched in the last 24 hours and your agent reads it right now: its chance, and why. It only judges tokens that have traded in the last 5 minutes.</p>
-      <div className="addr">
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste the token's contract address, 0x…" spellCheck={false} aria-label="Token to ask about" onKeyDown={(e) => e.key === "Enter" && !busy && ask()} disabled={busy} />
-        <button className="btn sm" onClick={ask} disabled={busy || !input.trim()}><span>{busy ? "Reading…" : "Ask"}</span></button>
+    <div className="panel chat">
+      <div className="chat-head">
+        <h2>Ask your agent</h2>
+        {msgs.length > 0 && <button className="u small quiet" onClick={() => setMsgs([])}>Clear the conversation</button>}
       </div>
-      {res && !res.ok && (
-        <div className="check bad" role="status">
-          {res.name && <p className="tk-name"><b>{res.name}</b> <span className="muted">{res.symbol ? `$${res.symbol}` : ""}</span></p>}
-          <p>{res.reason}</p>
-        </div>
-      )}
-      {res && res.ok && (
-        <div className={"check ask " + res.verdict} role="status">
-          <p className="tk-name"><b>{res.name || "Unnamed token"}</b> <span className="muted">{res.symbol ? `$${res.symbol}` : ""}</span> <span className="muted small">launched {res.ageMinutes < 90 ? `${res.ageMinutes} min` : `${Math.round(res.ageMinutes / 60)} h`} ago, {fmt(res.trades)} trades, last one {res.lastTradeSecondsAgo < 90 ? "just now" : `${Math.round(res.lastTradeSecondsAgo / 60)} min ago`}</span></p>
-          <div className="rep">
-            <Meter label="Its chance" value={res.probability} tone="agent" />
-            <Meter label={`Alert threshold (${res.sensitivity})`} value={res.threshold} />
+      <div className="thread" ref={thread} role="log" aria-live="polite" aria-label={`Conversation with ${agent.name}`}>
+        <div className="msg agent">
+          <i className="av" aria-hidden="true" />
+          <div className="bubble">
+            <p>Hi, I am {agent.name}. Paste the contract address of any token on Pons and I will tell you what I see right now.</p>
+            <p className="muted small">I read best on tokens in their first day that are trading. Older or quieter ones I will still read, and I will say how far to trust it. Nothing you ask me is saved.</p>
           </div>
-          <p><b>{res.verdict === "above" ? "Above its alert threshold: it would speak up about this one right now." : "Below its alert threshold: it would stay quiet about this one right now."}</b></p>
-          {res.up.length > 0 && <p className="small"><span className="muted">Pushing it up: </span>{res.up.map((r) => `${r.label}: ${r.value}`).join(" · ")}</p>}
-          {res.down.length > 0 && <p className="small"><span className="muted">Pulling it down: </span>{res.down.map((r) => `${r.label}: ${r.value}`).join(" · ")}</p>}
-          {res.up.length === 0 && res.down.length === 0 && <p className="small muted">No single signal stood out.</p>}
-          <p className="muted small">The chance is the agent's own estimate that buying now returns at least {Math.round((agent.model?.objective.x ?? 0.2) * 100)}% within {agent.model?.objective.hours ?? 3} hours after costs. It is not a promise, and it can be wrong.</p>
-          <a className="u small" href={`https://ponsfamily.com/launchpad/${res.token}`} target="_blank" rel="noreferrer">Open on Pons</a>
+        </div>
+        {msgs.map((m) =>
+          m.from === "you" ? (
+            <div key={m.id} className="msg you">
+              <div className="bubble"><code>{short(m.token!)}</code></div>
+            </div>
+          ) : (
+            <div key={m.id} className="msg agent">
+              <i className="av" aria-hidden="true" />
+              <div className="bubble">
+                {m.pending ? <span className="typing" aria-label="Reading the token"><i /><i /><i /></span> : m.failed ? <p>I could not read that one. Try again in a moment.</p> : m.res ? <Answer res={m.res} agent={agent} /> : null}
+              </div>
+            </div>
+          ),
+        )}
+      </div>
+      {live.length > 0 && (
+        <div className="chips" aria-label="Tokens trading right now">
+          <span className="muted small">Trading right now:</span>
+          {live.map((t) => (
+            <button key={t.address} className="chip" disabled={busy} onClick={() => send(t.address)} title={`${t.name || t.address}, ${t.recentTrades} trades in the last 5 minutes`}>
+              {t.symbol ? `$${t.symbol}` : short(t.address)}
+            </button>
+          ))}
         </div>
       )}
+      <form className="composer" onSubmit={(e) => (e.preventDefault(), send(input))}>
+        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste a token's contract address, 0x…" spellCheck={false} aria-label="Token to ask about" disabled={busy} />
+        <button className="btn sm" disabled={busy || !input.trim()} aria-label="Send"><span>Send</span></button>
+      </form>
     </div>
   );
 }

@@ -34,7 +34,7 @@ ix.onTrades((tokens) => {
 new JobRunner(db).start();
 
 const app = new Hono();
-const ipOf = (c: Context) => (CFG.trustProxy ? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() : undefined) ?? (c.env as { incoming?: { socket?: { remoteAddress?: string } } }).incoming?.socket?.remoteAddress ?? "unknown";
+const ipOf = (c: Context) => (CFG.trustProxy ? c.req.header(CFG.clientIpHeader)?.split(",")[0]?.trim() : undefined) ?? (c.env as { incoming?: { socket?: { remoteAddress?: string } } }).incoming?.socket?.remoteAddress ?? "unknown";
 
 // ---- a small per-key rate limit ----
 const hits = new Map<string, { n: number; t: number }>();
@@ -145,6 +145,20 @@ app.post("/api/agents/:id/test", (c) => {
   guard(c, "test", 10);
   return c.json(queueTest(db, owner, c.req.param("id")));
 });
+// young tokens trading right now: the suggestions in the ask chat. Public chain data, but signed-in and rate limited because it reads names from the chain
+app.get("/api/tokens/live", async (c) => {
+  me(c);
+  guard(c, "live", 30);
+  const t = Math.floor(Date.now() / 1000);
+  const rows = db
+    .prepare(
+      `SELECT t.address, t.launched_ts, COUNT(*) AS recent FROM tokens t JOIN trades r ON r.curve = t.curve
+       WHERE t.launched_ts > ? AND r.ts > ? AND t.graduated = 0 GROUP BY t.address ORDER BY recent DESC LIMIT 5`,
+    )
+    .all(t - 86400, t - 300) as { address: string; launched_ts: number; recent: number }[];
+  const out = await Promise.all(rows.map(async (r) => ({ address: r.address, ...(await ix.meta(r.address)), recentTrades: r.recent, ageMinutes: Math.round((t - r.launched_ts) / 60) })));
+  return c.json({ tokens: out });
+});
 app.post("/api/agents/:id/ask", async (c) => {
   const owner = me(c);
   guard(c, "ask", 30);
@@ -171,7 +185,7 @@ app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));
 
 // ---- the built site ----
 const DIST = join(process.cwd(), CFG.distDir);
-const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".json": "application/json", ".txt": "text/plain", ".ico": "image/x-icon" };
+const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".json": "application/json", ".txt": "text/plain", ".ico": "image/x-icon", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
 app.get("*", (c) => {
   const path = normalize(decodeURIComponent(new URL(c.req.url).pathname)).replace(/^(\.\.[/\\])+/, "");
   let file = join(DIST, path);

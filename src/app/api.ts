@@ -30,7 +30,9 @@ export type MyBurns = { burns: { id: string; token: string; symbol: string; name
 export type AskReason = { feature: string; label: string; value: string };
 export type AskResult =
   | { ok: false; reason: string; name?: string; symbol?: string }
-  | { ok: true; token: string; curve: string; name: string; symbol: string; ageMinutes: number; probability: number; threshold: number; sensitivity: string; verdict: "above" | "below"; up: AskReason[]; down: AskReason[]; price: number; trades: number; lastTradeSecondsAgo: number };
+  | { ok: true; token: string; curve: string; name: string; symbol: string; ageMinutes: number; probability: number; threshold: number; sensitivity: string; verdict: "above" | "below"; scope: "inside" | "outside"; notes: string[]; up: AskReason[]; down: AskReason[]; price: number; trades: number; lastTradeSecondsAgo: number };
+
+export type LiveToken = { address: string; name: string; symbol: string; recentTrades: number; ageMinutes: number };
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -61,6 +63,7 @@ export const api = {
   burns: () => call<Burns>("GET", "/api/burns"),
   myBurns: () => call<MyBurns>("GET", "/api/me/burns"),
   credits: () => call<{ credits: number }>("GET", "/api/me/credits").then((r) => r.credits),
+  liveTokens: () => call<{ tokens: LiveToken[] }>("GET", "/api/tokens/live").then((r) => r.tokens),
   ask: (id: string, token: string) => call<AskResult>("POST", `/api/agents/${id}/ask`, { token }),
   alerts: (id: string) => call<{ alerts: AlertView[] }>("GET", `/api/agents/${id}/alerts`).then((r) => r.alerts),
 };

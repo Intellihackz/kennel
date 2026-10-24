@@ -269,6 +269,18 @@ What this means:
 
 Limits of these numbers: four days of data, one chain regime, one objective (+20% net within 3 hours), and the designer chose features after looking at an earlier version of this data. Treat them as evidence the pipeline works, not as a promise about returns.
 
+## Asking about older or quieter tokens (measured 2026-10-24)
+
+"Ask your agent" answers for any token, but an agent only practised on moments in a token's first 24 hours with trading in the last 5 minutes. To know how far to trust it elsewhere, agents trained on 20 tokens were scored on 50 tokens they never saw, 8 trials, at their alert threshold:
+
+| Kind of moment | Random chance | Agent's hit rate | Reading |
+|---|---|---|---|
+| First day, trading (what it learned) | 26% | 48% | clear skill (1.8x) |
+| Day 2 to 3, trading | 10% | 9% | no skill (0.84x) |
+| Day 2 to 3, quiet (no trade in 5 minutes) | 2% | 2% | nothing to read, and it says low |
+
+So the answer carries a plain note for those cases and never says "I would speak up" (the live scorer does not alert on such tokens). A graduated token, or one with no trades at all, is still refused, because there is nothing on the curve to read.
+
 ## Still open
 
 1. Platform token name and address (payments need the address). Burned: decided.
