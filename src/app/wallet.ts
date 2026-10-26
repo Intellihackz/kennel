@@ -1,13 +1,18 @@
-// Browser wallet connection. Wallets announce themselves (EIP-6963), the user picks one, and signs a one-time message.
+// Browser wallet connection. The page finds the Solana wallets installed in the browser, the user picks one, and signs a one-time message.
 // The server hands out a one-time message, the wallet signs it, and the server checks the signature and answers with a session token.
 // Signing costs no gas and moves no funds.
 import { useSyncExternalStore } from "react";
 
-type Eth = {
-  request: (a: { method: string; params?: unknown[] }) => Promise<any>;
+// Solana wallets inject a provider into the page. Phantom, Solflare and Backpack share the same small surface.
+export type SolProvider = {
+  connect: (o?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: { toString(): string } } | void>;
+  disconnect?: () => Promise<void>;
+  signMessage: (m: Uint8Array, display?: string) => Promise<{ signature: Uint8Array } | Uint8Array>;
+  signAndSendTransaction?: (tx: unknown) => Promise<{ signature: string } | string>;
+  publicKey?: { toString(): string } | null;
   on?: (e: string, f: (...a: any[]) => void) => void;
 };
-export type Detected = { id: string; name: string; icon: string; provider: Eth };
+export type Detected = { id: string; name: string; icon: string; provider: SolProvider };
 
 const SESSION = "kennel:session";
 const DAY = 24 * 3600_000;
@@ -39,28 +44,32 @@ const write = (s: Session | null) => {
 };
 
 const watched = new WeakSet<object>();
-function watch(id: string, provider: Eth) {
+function watch(id: string, provider: SolProvider) {
   if (watched.has(provider)) return;
   watched.add(provider);
-  provider.on?.("accountsChanged", (a: string[]) => {
+  const out = () => {
     if (state.providerId !== id) return;
-    if ((a[0]?.toLowerCase() ?? "") === state.account) return;
-    // a different account has not signed in, so treat the wallet as signed out
     write(null);
     emit({ account: "", providerId: "" });
+  };
+  provider.on?.("disconnect", out);
+  // a different account has not signed in, so treat the wallet as signed out
+  provider.on?.("accountChanged", (k: { toString(): string } | null) => {
+    if (state.providerId === id && k?.toString() !== state.account) out();
   });
 }
 
 function add(d: Detected) {
   if (detected.has(d.id)) return;
   detected.set(d.id, d);
-  // restore a remembered session quietly if the wallet still has this account connected
+  // restore a remembered session quietly if the wallet still trusts this site
   const s = read();
   if (s && s.providerId === d.id && !state.account) {
     d.provider
-      .request({ method: "eth_accounts" })
-      .then((a: string[]) => {
-        if (a[0]?.toLowerCase() === s.address && !state.account) {
+      .connect({ onlyIfTrusted: true })
+      .then((r) => {
+        const k = (r && "publicKey" in r ? r.publicKey : d.provider.publicKey)?.toString();
+        if (k === s.address && !state.account) {
           watch(d.id, d.provider);
           emit({ account: s.address, providerId: d.id });
         }
@@ -70,20 +79,23 @@ function add(d: Detected) {
   emit();
 }
 
+type Injected = { phantom?: { solana?: SolProvider & { isPhantom?: boolean } }; solflare?: SolProvider & { isSolflare?: boolean }; backpack?: SolProvider; solana?: SolProvider };
+function scan() {
+  const w = window as unknown as Injected;
+  if (w.phantom?.solana) add({ id: "phantom", name: "Phantom", icon: "", provider: w.phantom.solana });
+  if (w.solflare?.isSolflare) add({ id: "solflare", name: "Solflare", icon: "", provider: w.solflare });
+  if (w.backpack) add({ id: "backpack", name: "Backpack", icon: "", provider: w.backpack });
+  if (w.solana && detected.size === 0) add({ id: "injected", name: "Browser wallet", icon: "", provider: w.solana });
+}
+
 let started = false;
 export function initWallets() {
   if (started || typeof window === "undefined") return;
   started = true;
-  window.addEventListener("eip6963:announceProvider", ((e: CustomEvent) => {
-    const { info, provider } = e.detail ?? {};
-    if (info?.rdns && provider) add({ id: info.rdns, name: info.name, icon: info.icon, provider });
-  }) as EventListener);
-  window.dispatchEvent(new Event("eip6963:requestProvider"));
-  // wallets that do not announce themselves
-  setTimeout(() => {
-    const legacy = (window as unknown as { ethereum?: Eth }).ethereum;
-    if (legacy && detected.size === 0) add({ id: "injected", name: "Browser wallet", icon: "", provider: legacy });
-  }, 400);
+  scan();
+  // wallets inject themselves a little after the page loads
+  setTimeout(scan, 300);
+  setTimeout(scan, 1500);
 }
 
 export function useWallet() {
@@ -97,22 +109,24 @@ export async function connect(id: string) {
   if (!d) return emit({ error: "That wallet is no longer available." });
   emit({ busy: id, error: "" });
   try {
-    const accounts: string[] = await d.provider.request({ method: "eth_requestAccounts" });
-    if (!accounts[0]) throw new Error("No account was selected.");
-    const account = accounts[0].toLowerCase();
+    const r = await d.provider.connect();
+    const account = ((r && "publicKey" in r ? r.publicKey : null) ?? d.provider.publicKey)?.toString();
+    if (!account) throw new Error("No account was selected.");
     const ch = await fetch(`/api/auth/challenge?address=${account}`);
     const chBody = await ch.json().catch(() => ({}));
     if (!ch.ok) throw new Error(chBody.error ?? "Could not start sign in.");
-    const signature: string = await d.provider.request({ method: "personal_sign", params: [chBody.message, account] });
-    const v = await fetch("/api/auth/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account, signature }) });
+    const signed = await d.provider.signMessage(new TextEncoder().encode(chBody.message), "utf8");
+    const bytes = signed instanceof Uint8Array ? signed : signed.signature;
+    const { default: bs58 } = await import("bs58");
+    const v = await fetch("/api/auth/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account, signature: bs58.encode(bytes) }) });
     const vBody = await v.json().catch(() => ({}));
     if (!v.ok) throw new Error(vBody.error ?? "Sign in failed.");
     write({ address: account, providerId: id, expiresAt: vBody.expiresAt ?? Date.now() + 7 * DAY, token: vBody.token });
     watch(id, d.provider);
     emit({ account, providerId: id, busy: "", error: "" });
   } catch (e) {
-    const err = e as { code?: number; message?: string; shortMessage?: string };
-    const text = err?.code === 4001 || /reject|denied/i.test(err?.message ?? "") ? "You cancelled it in your wallet." : (err?.shortMessage ?? err?.message ?? "Could not connect.").split("\n")[0].slice(0, 200);
+    const err = e as { code?: number; message?: string };
+    const text = err?.code === 4001 || /reject|denied|cancel/i.test(err?.message ?? "") ? "You cancelled it in your wallet." : (err?.message ?? "Could not connect.").split("\n")[0].slice(0, 200);
     emit({ busy: "", error: text });
   }
 }
@@ -120,31 +134,18 @@ export async function connect(id: string) {
 /** The session token for API calls, or empty when signed out. */
 export const getToken = () => (state.account ? (read()?.token ?? "") : "");
 
-export const activeProvider = (): Eth => {
+export const activeProvider = (): SolProvider => {
   const p = detected.get(state.providerId)?.provider;
   if (!p) throw new Error("Connect a wallet first.");
   return p;
 };
 
-const CHAIN = { id: 4663, hex: "0x1237", name: "Robinhood Chain", rpc: "https://rpc.mainnet.chain.robinhood.com", explorer: "https://robin.etherscan.io" };
-/** Asks the wallet to switch to Robinhood Chain (and add it if it does not know it). Needed before paying. */
-export async function ensureChain() {
-  const e = activeProvider();
-  const current = Number.parseInt(await e.request({ method: "eth_chainId" }), 16);
-  if (current === CHAIN.id) return;
-  try {
-    await e.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN.hex }] });
-  } catch (err) {
-    const code = (err as { code?: number })?.code;
-    if (code !== 4902 && code !== -32603) throw err;
-    await e.request({
-      method: "wallet_addEthereumChain",
-      params: [{ chainId: CHAIN.hex, chainName: CHAIN.name, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: [CHAIN.rpc], blockExplorerUrls: [CHAIN.explorer] }],
-    });
-  }
-}
-
 export function disconnect() {
+  try {
+    void activeProvider().disconnect?.();
+  } catch {
+    /* no wallet to disconnect */
+  }
   write(null);
   emit({ account: "", providerId: "", error: "" });
 }

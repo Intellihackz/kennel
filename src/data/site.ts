@@ -1,7 +1,7 @@
 // Placeholders the owner must replace (flagged placeholder: true):
 // - The name Kennel was chosen by the owner.
 // - site.token is a generic phrase until the token has a name.
-// - The 100,000 per token is BURNED (decided by the owner), sent to the dead address. Kennel collects nothing.
+// - The 100,000 per token is BURNED (decided by the owner), burned (destroyed on Solana). Kennel collects nothing.
 // - The example token contract addresses in the scene and the app are illustrations, not real tokens.
 
 export const site = {
@@ -32,14 +32,14 @@ export const chapters = [
   {
     n: "02",
     title: "Feed it tokens.",
-    body: "Add a token by its contract address. 100,000 platform tokens are burned, and the full trade history of that token goes into the agent. Only you can add tokens.",
+    body: "Add a pump.fun token by its address. 100,000 platform tokens are burned, and the full trade history of that token goes into the agent. Only you can add tokens.",
     from: 0.2,
     to: 0.58,
   },
   {
     n: "03",
     title: "Five unlocks it.",
-    body: "Five is the minimum before an agent can take its test, not the limit. Add as many tokens as you like, and it learns from every one. In our own trials, agents that learned from more tokens passed more often. Each needs enough history, at least 300 trades and a day of age, or to have graduated. A token that is too thin is refused before anything is burned.",
+    body: "Five is the minimum before an agent can take its test, not the limit. Add as many tokens as you like, and it learns from every one. Each needs enough history, at least 300 trades and a day of age, or to have graduated. A token that is too thin is refused before anything is burned.",
     from: 0.58,
     to: 0.78,
   },
@@ -67,7 +67,7 @@ export const gets = {
     { k: "A test report", v: "How often its alerts were right on tokens it never saw, set against random alerts and a simple rule, the average and the worst return of its alerts, and a warning when it looks overfit." },
     { k: "Alerts with reasons", v: "Telegram, browser push or a webhook. Every alert says why it fired." },
     { k: "A journal", v: "Each decision it made, fired or not, with the time. Read it in your room." },
-    { k: "A way to act", v: "Every alert links straight to the token on Pons. You decide and trade from your own wallet. Kennel never holds your funds." },
+    { k: "A way to act", v: "Every alert links straight to the token on pump.fun. You decide and trade from your own wallet. Kennel never holds your funds." },
   ],
 };
 

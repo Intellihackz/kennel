@@ -30,7 +30,7 @@ export async function askAgent(db: Db, ix: Indexer, owner: string, agentId: stri
   const sens = settings.sensitivity ?? "normal";
 
   const t = await ix.resolveToken(tokenAddr);
-  if (!t) return { ok: false, reason: "That is not a token launched on Pons, or we cannot find it yet." };
+  if (!t) return { ok: false, reason: "That is not a token launched on pump.fun, or we cannot find it yet." };
   const meta = await ix.meta(t.address);
   const now = Math.floor(Date.now() / 1000);
   const ageH = (now - t.launched_ts) / 3600;
@@ -43,7 +43,7 @@ export async function askAgent(db: Db, ix: Indexer, owner: string, agentId: stri
   if (smp.length === 0) return { ok: false, ...meta, reason: "This token has no trades yet, so there is nothing to read." };
 
   const notes: string[] = [];
-  if (ageH > 24) notes.push(`This token is ${ageH < 48 ? `${Math.round(ageH)} hours` : `${Math.round(ageH / 24)} days`} old. I only learned from the first day of a token's life, so for one this old I have no track record. In our own checks, agents were no better than chance on tokens older than a day. Treat this as a rough guess.`);
+  if (ageH > 24) notes.push(`This token is ${ageH < 48 ? `${Math.round(ageH)} hours` : `${Math.round(ageH / 24)} days`} old. I only learned from the first day of a token's life, so for one this old I have no track record, and Kennel has not tested agents on tokens this old. Treat this as a rough guess.`);
   if (lastAgo > 300) notes.push(`Nothing has traded for ${span(lastAgo)}. I learned from moments with trading in the last 5 minutes, so there is little for me to read. Tokens this quiet rarely move, and I usually say low.`);
 
   const x = smp[0].x;

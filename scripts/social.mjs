@@ -67,7 +67,7 @@ cards["post-1-launch"] = page(`
 </svg>
 <div class="top">${lockup(46)}</div>
 <h1 class="display" style="position:absolute;left:96px;top:300px;font-size:92px;white-space:nowrap">Train your own<br><span class="amber">trading agent.</span></h1>
-<p style="position:absolute;left:96px;top:590px;font-size:28px;line-height:1.5;width:700px" class="muted">Add Pons tokens. It learns, takes a test on tokens it never saw, then moves into a room only you can open.</p>
+<p style="position:absolute;left:96px;top:590px;font-size:28px;line-height:1.5;width:700px" class="muted">Add tokens. It learns, takes a test on tokens it never saw, then moves into a room only you can open.</p>
 <div class="foot"><b>usekennel.lol</b><span>Private. Tested. Burned, not collected.</span></div>`);
 
 // 2. how it works, four steps

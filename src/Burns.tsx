@@ -8,7 +8,7 @@ import { site } from "./data/site";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const day = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-const EXPLORER = "https://robin.etherscan.io";
+const EXPLORER = "https://solscan.io";
 
 export function Burns() {
   const [d, setD] = useState<BurnsData | null>(null);
@@ -64,8 +64,8 @@ export function Burns() {
           <div>
             <h2>How a burn works</h2>
             <ol className="steps2">
-              <li><b>You send the tokens.</b><span>When you add a token, your wallet sends {fmt(site.perToken)} platform tokens to the dead address. You sign it, from your own wallet.</span></li>
-              <li><b>Nobody can get them back.</b><span>The dead address has no owner and no key. The tokens are out of circulation for good, and that includes from Kennel.</span></li>
+              <li><b>You send the tokens.</b><span>When you add a token, your wallet burns {fmt(site.perToken)} platform tokens. You sign it, from your own wallet.</span></li>
+              <li><b>Nobody can get them back.</b><span>A burn destroys the tokens and lowers the supply. They are out of circulation for good, and that includes from Kennel.</span></li>
               <li><b>We read the chain.</b><span>Kennel looks at that transfer on the chain and checks it, and only then adds your token. The same transfer can never pay twice.</span></li>
             </ol>
           </div>
@@ -85,18 +85,11 @@ export function Burns() {
 
         <section className="b-verify">
           <h2>Check it yourself</h2>
-          <p className="muted">These totals count only burns made through {site.name}. Anyone can verify them on the chain: the burn address and the token are public.</p>
+          <p className="muted">These totals count only burns made through {site.name}. Anyone can verify them on the chain: the token and its supply are public.</p>
           <dl className="addrs">
             <div>
-              <dt>Burn address</dt>
-              <dd>
-                <code>{d?.burnAddress ?? "0x000000000000000000000000000000000000dEaD"}</code>{" "}
-                <a className="u" href={`${EXPLORER}/address/${d?.burnAddress ?? "0x000000000000000000000000000000000000dEaD"}`} target="_blank" rel="noreferrer">Open</a>
-              </dd>
-            </div>
-            <div>
               <dt>Platform token</dt>
-              <dd>{d?.platformToken ? (<><code>{d.platformToken}</code> <a className="u" href={`${EXPLORER}/token/${d.platformToken}?a=${d.burnAddress}`} target="_blank" rel="noreferrer">Burned balance</a></>) : <span className="muted">Not set yet</span>}</dd>
+              <dd>{d?.platformToken ? (<><code>{d.platformToken}</code> <a className="u" href={`${EXPLORER}/token/${d.platformToken}`} target="_blank" rel="noreferrer">Supply on Solscan</a></>) : <span className="muted">Not set yet</span>}</dd>
             </div>
           </dl>
         </section>

@@ -17,14 +17,15 @@ Kennel is **one service with one disk**: the website, the API, the chain indexer
    | `CLIENT_IP_HEADER` | `x-forwarded-for` (see the note below) |
    | `SITE_URL` | your public address, like `https://kennel.xyz` (optional, see "Page metadata") |
    | `X_HANDLE` | your X account without the @ (optional) |
-   | `RPC_URL` | optional: a paid Robinhood Chain RPC. The public one works but is rate limited |
+   | `SOLANA_RPC_URL` | **required in production**: a keyed Solana RPC (Helius, Triton, QuickNode) that allows websocket `logsSubscribe`. The public one is rate limited and too slow for pump.fun |
+   | `RPC_RPS` | requests per second your RPC plan allows (default 8) |
 
    Do not set `PORT`: Railway sets it. Leave `PLATFORM_TOKEN` empty until the token exists (see below).
 4. **Keep it to one replica.** `railway.json` already says so. Do not scale it up.
 5. **Give it an address.** Settings, Networking: generate a domain, or add your own domain (point a CNAME at the target Railway shows). Then set `SITE_URL` to that `https://` address and redeploy, so every page's head gets the right canonical link and share card.
 6. **Deploy.** Every push to `main` redeploys. A deploy restarts the process, so there is a short gap (a volume can only be attached to one running instance). Training or testing that was running is queued again automatically.
 
-**Memory:** 1 GB is comfortable. **First start:** the web server is up in seconds, but the indexer reads about three days of Pons launches and trades first (`BACKFILL_DAYS`, default 3), which takes a few minutes. The app says it is catching up and refuses token checks until it has.
+**Memory:** 1 GB is comfortable. **First start:** the web server is up in seconds, but the indexer connects to the live pump.fun feed and starts collecting from that moment. It has no backlog to read, but tokens that launched before the first start are only known once someone asks about them (read from the chain then). The app refuses token checks until the feed is connected, and an empty database has no tokens to test an agent on until a day of launches has passed.
 
 **A note on `CLIENT_IP_HEADER`.** The rate limits need the visitor's real address. Railway puts it in `X-Forwarded-For`. If you ever see every visitor sharing one limit, check what your proxy sends and set this to match.
 
@@ -41,9 +42,9 @@ Kennel is **one service with one disk**: the website, the API, the chain indexer
 
 ### What lives where, and backups
 
-- **Can be rebuilt from the chain:** the indexed launches and trades (the biggest part of the file). If the volume is lost, the indexer fills it again.
+- **Can be rebuilt from the chain:** the indexed trades (the biggest part of the file). A token that is asked about is read from the chain again. Tokens that were only seen live and were never asked about, and the held-out test pool that depends on them, restart from nothing, so a lost volume means a day or two before tests have a pool again. Trades are dropped after `RETAIN_HOURS` (72) unless an agent was trained on the token.
 - **Cannot be rebuilt:** agents, trained models, tests, alerts, orders, burn records and credits. That is what to protect. Use Railway's volume backups if your plan has them, and consider a regular copy of the file (`sqlite3 kennel.db ".backup copy.db"` is safe while it runs).
-- The file grows by roughly 25 to 40 MB per day of indexed trades. Start with a 3 to 5 GB volume.
+- Only tokens with at least `PROMOTE_TRADES` trades are stored, which keeps the growth to the order of tens of MB per day (an estimate, not measured: watch it for the first days). Start with a 3 to 5 GB volume.
 
 ## When the platform token exists
 
@@ -71,14 +72,14 @@ For hot reload run `npm run server` in one terminal and `npm run dev` in another
 
 ## Payments are burned
 
-Set `PLATFORM_TOKEN` (the ERC-20 address). There is no treasury: Kennel collects nothing. The app asks the user's wallet to send `PRICE_PER_TOKEN` tokens to the dead address (`0x000000000000000000000000000000000000dEaD`), then sends the transaction hash to `POST /api/orders/:id/claim`. The server reads that transaction from the chain, checks that it is a Transfer of that token, from that user, to the dead address, for at least the price, and refuses a hash that has already paid for an order.
+Set `PLATFORM_TOKEN` (the mint address of the SPL token). There is no treasury: Kennel collects nothing. The app asks the user's wallet to burn `PRICE_PER_TOKEN` tokens (an SPL `burnChecked` instruction, which destroys them), then sends the transaction signature to `POST /api/orders/:id/claim`. The server reads that transaction from the chain, checks that it is a burn of that mint, signed by that user, for at least the price, and refuses a signature that has already paid for an order. Both Token and Token-2022 mints work.
 
-A burn cannot be returned. So when a run fails because of a problem on our side (or a verified burn turns out to be for a token that can no longer be used), the user gets a **credit** (table `credits`): their next token is added without a new burn. Credits are used by sending a claim with no transaction hash. Failures caused by the tokens themselves (for example none of them ever moved) keep the tokens and tell the user why. Nothing is burned for a token that the checks refuse.
+A burn cannot be returned. So when a run fails because of a problem on our side (or a verified burn turns out to be for a token that can no longer be used), the user gets a **credit** (table `credits`): their next token is added without a new burn. Credits are used by sending a claim with no transaction signature. Failures caused by the tokens themselves (for example none of them ever moved) keep the tokens and tell the user why. Nothing is burned for a token that the checks refuse.
 
 Two pages show the burns. `GET /api/burns` (public) gives totals and the last 14 days, with no wallet and no token named. `GET /api/me/burns` (signed in) lists one wallet's own burns with transaction links. The public page is `/burns`.
 
 ## What is not built
 
-- Automatic trading. An ordinary wallet cannot give a server a spending cap, so alerts link to the token on Pons and the user acts from their own wallet. See SPEC.md section 10.
+- Automatic trading. An ordinary wallet cannot give a server a spending cap, so alerts link to the token on pump.fun and the user acts from their own wallet. See SPEC.md section 10.
 - Browser push and Telegram alerts. Alerts show in the app and can be posted to a webhook.
 - Post-graduation trading data. Training and testing use the bonding-curve phase only.

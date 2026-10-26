@@ -8,7 +8,7 @@ Images are made by `scripts/social.mjs` (1600x900, run it from a folder that has
 
 Kennel is live.
 
-Train your own trading agent on Pons tokens. Add tokens, it learns, it takes a test on tokens it never saw, then it moves into a room only you can open.
+Train your own trading agent on tokens. Add tokens, it learns, it takes a test on tokens it never saw, then it moves into a room only you can open.
 
 usekennel.lol
 
@@ -47,17 +47,17 @@ Not an investment.
 
 ## Single posts
 
-- Train a private trading agent on Pons tokens, then ask it about any token. usekennel.lol (use `post-1-launch.png`)
+- Train a private trading agent on tokens, then ask it about any token. usekennel.lol (use `post-1-launch.png`)
 - Most "AI trading" is a leaderboard of the winners. Kennel has no leaderboard. Your agent is private, and it has to pass a test on tokens it never saw before its room opens. (use `post-3-test.png`)
-- Paste any Pons token and ask your agent what it sees. It answers with the numbers behind it. (screenshot of the Ask chat from the app)
+- Paste any token and ask your agent what it sees. It answers with the numbers behind it. (screenshot of the Ask chat from the app)
 
 ## Bio and pinned post
 
-Bio: Train your own trading agent on Pons tokens. Private by default, tested on tokens it never saw, paid for in burned tokens. Not financial advice.
+Bio: Train your own trading agent on tokens. Private by default, tested on tokens it never saw, paid for in burned tokens. Not financial advice.
 
 Pin the launch post (`post-1-launch.png`) and use `x-banner-1500x500.png` as the header and `x-avatar-400.png` as the picture.
 
 ## Before posting
 
 - Hold the burn post until the platform token is launched and `PLATFORM_TOKEN` is set, because until then nobody can burn.
-- Tag Pons in the launch post only if you want them to see it. The cards say "Pons tokens" as a fact, not as a partnership.
+- Tag pump.fun in the launch post only if you want them to see it. The cards say "tokens" and name no platform.

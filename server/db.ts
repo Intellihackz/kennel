@@ -10,20 +10,19 @@ export function openDb(path = CFG.dbPath) {
   db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 15000; PRAGMA foreign_keys = ON;");
   db.exec(`
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS anchors (block INTEGER PRIMARY KEY, ts INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS tokens (
-  address TEXT PRIMARY KEY, curve TEXT NOT NULL UNIQUE, deployer TEXT NOT NULL, launched_block INTEGER NOT NULL, launched_ts INTEGER NOT NULL,
+  address TEXT PRIMARY KEY, curve TEXT NOT NULL UNIQUE, deployer TEXT NOT NULL, launched_block INTEGER NOT NULL, launched_ts INTEGER NOT NULL, -- launched_block is a Solana slot
   pair_token TEXT, threshold TEXT, name TEXT, symbol TEXT, graduated INTEGER NOT NULL DEFAULT 0, graduated_checked INTEGER NOT NULL DEFAULT 0,
-  full_from INTEGER -- trades are complete from this block on (NULL until known)
+  full_from INTEGER -- every trade since the launch is stored when this is set; NULL when the trades are not (all) here (never read, or pruned)
 );
 CREATE INDEX IF NOT EXISTS tokens_launched ON tokens (launched_block);
 CREATE TABLE IF NOT EXISTS trades (
-  curve TEXT NOT NULL, block INTEGER NOT NULL, log_index INTEGER NOT NULL, ts INTEGER NOT NULL, tx TEXT NOT NULL,
+  curve TEXT NOT NULL, block INTEGER NOT NULL, log_index INTEGER NOT NULL, ts INTEGER NOT NULL, tx TEXT NOT NULL, -- block is the slot, log_index the event's place in its transaction
   side INTEGER NOT NULL, -- 1 buy, 0 sell
-  wallet TEXT NOT NULL, recipient TEXT NOT NULL, quote TEXT NOT NULL, tokens TEXT NOT NULL, fee TEXT NOT NULL, tax TEXT NOT NULL,
-  PRIMARY KEY (curve, block, log_index)
+  wallet TEXT NOT NULL, recipient TEXT NOT NULL, quote TEXT NOT NULL, tokens TEXT NOT NULL, fee TEXT NOT NULL, tax TEXT NOT NULL, -- quote is lamports, tokens are raw units (6 decimals), fee is lamports
+  PRIMARY KEY (curve, tx, log_index)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS trades_block ON trades (block);
+CREATE INDEX IF NOT EXISTS trades_ts ON trades (ts);
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL, created_at INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'empty', -- empty | training | ready_to_test | testing | locked | ready
@@ -57,6 +56,13 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS alerts_agent ON alerts (agent_id, ts);
 `);
+  // a database made for the Pons version holds Ethereum addresses and cannot be reused
+  const chain = (db.prepare("SELECT v FROM meta WHERE k = 'chain'").get() as { v: string } | undefined)?.v;
+  if (!chain) {
+    const used = (db.prepare("SELECT (SELECT COUNT(*) FROM tokens) + (SELECT COUNT(*) FROM agents) AS n").get() as { n: number }).n;
+    if (used) throw new Error(`${path} was made for the Pons (Ethereum) version of Kennel and cannot be used on Solana. Point DB_PATH at a new file, or delete this one.`);
+    db.prepare("INSERT INTO meta (k, v) VALUES ('chain', 'solana')").run();
+  } else if (chain !== "solana") throw new Error(`${path} belongs to another chain (${chain}).`);
   return db;
 }
 

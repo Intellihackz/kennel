@@ -7,8 +7,10 @@ import { startWorkshop, type WorkshopHandle } from "../motion/workshop";
 import { sceneMarkup } from "../motion/scene";
 import { api, ApiError, type AgentView, type AlertView, type AskResult, type Config, type Eligibility, type LiveToken, type MyBurns, type Order, type TestReport } from "./api";
 import { toast } from "./toast";
-import { activeProvider, connect, disconnect, ensureChain, initWallets, shortAddr, useWallet } from "./wallet";
+import { burnPlatformTokens } from "./burn";
+import { connect, disconnect, initWallets, shortAddr, useWallet } from "./wallet";
 
+const SOL_ADDR = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const SCENE = sceneMarkup();
 type Tab = "train" | "test" | "room";
 
@@ -69,8 +71,8 @@ function SignIn() {
             </button>
           ))}
         </div>
-        {wallets.length === 0 && <p className="muted small">No browser wallet found yet. Install one such as MetaMask or Rabby, then reload this page.</p>}
-        <p className="note">You sign one message to prove the wallet is yours. It costs no gas and cannot move funds.</p>
+        {wallets.length === 0 && <p className="muted small">No browser wallet found yet. Install one such as Phantom, Solflare or Backpack, then reload this page.</p>}
+        <p className="note">You sign one message to prove the wallet is yours. It costs no fee and cannot move funds.</p>
       </div>
     </section>
   );
@@ -306,8 +308,8 @@ function Train({ agent, config, account, refresh }: { agent: AgentView; config: 
   const check = async () => {
     setChecked(null);
     const ca = input.trim();
-    if (!/^0x[0-9a-fA-F]{40}$/.test(ca)) return toast("That is not a contract address. It starts with 0x and has 40 more characters.");
-    if (agent.tokens.some((t) => t.token === ca.toLowerCase())) return toast("This agent has already learned from that token.");
+    if (!SOL_ADDR.test(ca)) return toast("That is not a token address. Paste the mint address of a pump.fun token.");
+    if (agent.tokens.some((t) => t.token === ca)) return toast("This agent has already learned from that token.");
     setStep("Checking the token…");
     try {
       setChecked(await api.check(ca));
@@ -322,10 +324,7 @@ function Train({ agent, config, account, refresh }: { agent: AgentView; config: 
     if (order.mock || order.credit) return api.claim(order.id); // development mode, or a credit from a run that failed on our side
     if (!order.platformToken) throw new Error("Payments are not set up yet.");
     setStep("Confirm the burn in your wallet…");
-    await ensureChain();
-    const { encodeFunctionData, parseAbi } = await import("viem");
-    const data = encodeFunctionData({ abi: parseAbi(["function transfer(address to, uint256 value) returns (bool)"]), functionName: "transfer", args: [order.burnAddress as `0x${string}`, BigInt(order.amount)] });
-    const txHash = (await activeProvider().request({ method: "eth_sendTransaction", params: [{ from: account, to: order.platformToken, data }] })) as string;
+    const txHash = await burnPlatformTokens({ owner: account, mint: order.platformToken, tokenProgram: order.tokenProgram, amount: order.amount, decimals: order.decimals });
     setStep("Waiting for the chain to confirm the burn…");
     for (let i = 0; i < 30; i++) {
       try {
@@ -364,7 +363,7 @@ function Train({ agent, config, account, refresh }: { agent: AgentView; config: 
         </p>
         {credits > 0 && !config.mockPayments && <p className="note">You have {credits} {credits === 1 ? "credit" : "credits"} from a run that failed on our side. It pays for your next token, so nothing will be burned.</p>}
         <div className="addr">
-          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste the token's contract address, 0x…" spellCheck={false} aria-label="Token contract address" onKeyDown={(e) => e.key === "Enter" && !busy && check()} disabled={busy} />
+          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste the token's address" spellCheck={false} aria-label="Token address" onKeyDown={(e) => e.key === "Enter" && !busy && check()} disabled={busy} />
           <button className="btn sm" onClick={check} disabled={busy || !input.trim()}><span>Check it</span></button>
         </div>
         {step && <p className="muted small" role="status">{step}</p>}
@@ -516,7 +515,7 @@ function Answer({ res, agent }: { res: AskResult; agent: AgentView }) {
       {res.down.length > 0 && <p className="small"><span className="muted">Pulling me down: </span>{res.down.map((r) => `${r.label}: ${r.value}`).join(" · ")}</p>}
       {res.up.length === 0 && res.down.length === 0 && <p className="small muted">No single signal stood out.</p>}
       <p className="muted small">My chance is my own estimate that buying now returns at least {Math.round((agent.model?.objective.x ?? 0.2) * 100)}% within {agent.model?.objective.hours ?? 3} hours after costs. It is not a promise, and I can be wrong.</p>
-      <a className="u small" href={`https://ponsfamily.com/launchpad/${res.token}`} target="_blank" rel="noreferrer">Open on Pons</a>
+      <a className="u small" href={`https://pump.fun/coin/${res.token}`} target="_blank" rel="noreferrer">Open on pump.fun</a>
     </>
   );
 }
@@ -540,7 +539,7 @@ function Ask({ agent }: { agent: AgentView }) {
   const send = async (raw: string) => {
     const ca = raw.trim();
     if (busy) return;
-    if (!/^0x[0-9a-fA-F]{40}$/.test(ca)) return toast("That is not a contract address. It starts with 0x and has 40 more characters.");
+    if (!SOL_ADDR.test(ca)) return toast("That is not a token address. Paste the mint address of a pump.fun token.");
     setInput("");
     const reply = next.current + 1;
     setMsgs((m) => [...m, { id: next.current, from: "you", at: Date.now(), token: ca }, { id: reply, from: "agent", at: Date.now(), pending: true }]);
@@ -564,7 +563,7 @@ function Ask({ agent }: { agent: AgentView }) {
         <div className="msg agent">
           <i className="av" aria-hidden="true" />
           <div className="bubble">
-            <p>Hi, I am {agent.name}. Paste the contract address of any token on Pons and I will tell you what I see right now.</p>
+            <p>Hi, I am {agent.name}. Paste the address of any pump.fun token and I will tell you what I see right now.</p>
             <p className="muted small">I read best on tokens in their first day that are trading. Older or quieter ones I will still read, and I will say how far to trust it. Nothing you ask me is saved.</p>
           </div>
         </div>
@@ -594,7 +593,7 @@ function Ask({ agent }: { agent: AgentView }) {
         </div>
       )}
       <form className="composer" onSubmit={(e) => (e.preventDefault(), send(input))}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste a token's contract address, 0x…" spellCheck={false} aria-label="Token to ask about" disabled={busy} />
+        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste a token's address" spellCheck={false} aria-label="Token to ask about" disabled={busy} />
         <button className="btn sm" disabled={busy || !input.trim()} aria-label="Send"><span>Send</span></button>
       </form>
     </div>
@@ -637,14 +636,14 @@ function RoomTab({ agent, refresh, onDeleted }: { agent: AgentView; refresh: () 
       <Ask agent={agent} />
       <div className="panel">
         <h2>Alerts</h2>
-        <p className="muted small">They arrive here with the reasoning attached. Each links to the token on Pons, and you decide from your own wallet.</p>
+        <p className="muted small">They arrive here with the reasoning attached. Each links to the token on pump.fun, and you decide from your own wallet.</p>
         {alerts === null ? <p className="muted small">Loading…</p> : alerts.length === 0 ? <p className="muted">No alerts yet. The agent watches every token in its first day and speaks up only when a moment looks like the ones it learned from.</p> : (
           <ul className="alerts">
             {alerts.map((a) => (
               <li key={a.id}>
                 <b>{a.symbol ? `$${a.symbol}` : `${a.token.slice(0, 6)}…${a.token.slice(-4)}`} <em className="pill">{pct(a.probability)} chance</em> <span className="muted small">{ago(a.at)}</span></b>
                 <span>{a.reasons.length ? a.reasons.map((r) => `${r.label}: ${r.value}`).join(" · ") : "No single reason stood out."}</span>
-                <a className="u small" href={`https://ponsfamily.com/launchpad/${a.token}`} target="_blank" rel="noreferrer">Open on Pons</a>
+                <a className="u small" href={`https://pump.fun/coin/${a.token}`} target="_blank" rel="noreferrer">Open on pump.fun</a>
                 {a.webhook && <span className="muted small"> · webhook {a.webhook}</span>}
               </li>
             ))}
@@ -721,7 +720,7 @@ function MyBurnsView({ config }: { config: Config | null }) {
                   <td>{ago(b.at)}</td>
                   <td>{b.symbol ? `$${b.symbol}` : `${b.token.slice(0, 6)}…${b.token.slice(-4)}`}{b.status === "credit_issued" && <em className="pill"> became a credit</em>}{b.status === "credit" && <em className="pill"> paid with a credit</em>}</td>
                   <td>{fmt(b.amount)}</td>
-                  <td>{b.txHash ? <a className="u" href={`https://robin.etherscan.io/tx/${b.txHash}`} target="_blank" rel="noreferrer">Transaction</a> : <span className="muted">credit</span>}</td>
+                  <td>{b.txHash ? <a className="u" href={`https://solscan.io/tx/${b.txHash}`} target="_blank" rel="noreferrer">Transaction</a> : <span className="muted">credit</span>}</td>
                 </tr>
               ))}
             </tbody>

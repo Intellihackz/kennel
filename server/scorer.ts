@@ -25,7 +25,7 @@ export const fmtVal = (name: string, v: number) => {
   if (name === "age_min") return `${v.toFixed(0)} min`;
   if (name.startsWith("ret_") || name === "from_peak") return `${(v * 100).toFixed(0)}%`;
   if (name.endsWith("_share") || name === "progress" || name === "buy_ratio_5m") return `${(v * 100).toFixed(0)}%`;
-  if (name.includes("flow") || name.includes("buy_5m")) return `${v.toFixed(3)} ETH`;
+  if (name.includes("flow") || name.includes("buy_5m")) return `${v.toFixed(3)} SOL`;
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 };
 

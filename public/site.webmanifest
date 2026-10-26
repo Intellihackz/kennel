@@ -1,7 +1,7 @@
 {
   "name": "Kennel",
   "short_name": "Kennel",
-  "description": "Train a private trading agent on Pons tokens, test it on tokens it never saw, and keep its alerts in a room only you can open.",
+  "description": "Train a private trading agent on tokens, test it on tokens it never saw, and keep its alerts in a room only you can open.",
   "start_url": "/",
   "display": "browser",
   "background_color": "#08161b",

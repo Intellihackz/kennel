@@ -36,7 +36,7 @@ function box(x0: number, y0: number, z0: number, w: number, d: number, h: number
 }
 
 const AX = 7.5; // the agent stands at x 7.5, y 0
-export const CRATE_TAGS = ["0x7a3f…c91e", "0x19bd…4a07", "0xe402…77d1", "0x5c18…0be9", "0xa6f0…d32c", "0x03d9…8be2", "0xb71c…5f40"]; // five are used in the story; the rest wait on the belt
+export const CRATE_TAGS = ["7xKq…9Fa2", "3Hd8…pump", "Bv2m…Ye4r", "5nTz…pump", "Cw9L…u1Xs", "Gp4a…pump", "8rJf…Zk3d"]; // five are used in the story; the rest wait on the belt
 export const FURNACE_X = -1; // where a crate meets the furnace
 export const BEAM_FROM = 4.8;
 export const BEAM_TO = 10.2;
