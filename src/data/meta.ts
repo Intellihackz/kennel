@@ -4,7 +4,7 @@
 export const SITE = {
   name: "Kennel",
   tagline: "Train your own trading agent",
-  description: "Train a private trading agent on Pons tokens, test it on tokens it never saw, and keep its alerts in a room only you can open.",
+  description: "Train a private trading agent on tokens, test it on tokens it never saw, and keep its alerts in a room only you can open.",
   imageAlt: "Kennel: an isometric workshop where token crates feed a furnace and a trading agent is built, then locked in a glass room.",
 };
 

@@ -1,5 +1,7 @@
 # Kennel: backend spec
 
+> **Update (Solana port):** Kennel now reads pump.fun on Solana instead of Pons on Robinhood Chain. Wherever this spec says Pons, ETH, a contract address, a block, a log or the dead address, read pump.fun, SOL, a mint address, a slot, a program event and an SPL burn. The product rules (private agents, burn per token, minimum five tokens, held-out test, alerts) are unchanged. What the old spec says about how well the model did was measured on Pons only and has not been measured on pump.fun.
+
 Status: draft for the owner. Written 2026-10-23 from the product rules decided in conversation. Anything marked **Decision** needs an answer before it is built.
 
 ## 1. What is being built

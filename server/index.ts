@@ -13,7 +13,8 @@ import { askAgent } from "./ask.ts";
 import { initPayments } from "./payments.ts";
 import { scoreTokens } from "./scorer.ts";
 import { agentView, burnStats, claimOrder, createAgent, createOrder, creditsFor, deleteAgent, getOrder, getOwned, HttpError, listAlerts, myBurns, queueTest, updateSettings, type AgentRow } from "./service.ts";
-import { tokenDecimals } from "./payments.ts";
+import { tokenDecimals, tokenProgram } from "./payments.ts";
+import { rpc } from "./solana.ts";
 
 const db = openDb();
 const ix = new Indexer(db);
@@ -81,7 +82,7 @@ app.get("/api/status", (c) => {
 });
 app.get("/api/config", (c) =>
   c.json({
-    chainId: CFG.chainId, platformToken: CFG.platformToken || null, burnAddress: CFG.burnAddress, decimals: tokenDecimals(), pricePerToken: CFG.pricePerToken,
+    platformToken: CFG.platformToken || null, tokenProgram: tokenProgram(), decimals: tokenDecimals(), pricePerToken: CFG.pricePerToken,
     minTokens: CFG.minTokens, minTrades: CFG.minTrades, minAgeHours: CFG.minAgeHours, minActiveMinutes: CFG.minActiveMinutes, mockPayments: CFG.mockPayments,
     objective: CFG.objective, testGate: CFG.testGate, indexerReady: ix.ready,
   }),
@@ -98,9 +99,17 @@ app.post("/api/auth/verify", async (c) => {
   guard(c, "auth", 30);
   const b = await body(c);
   if (!isAddress(b.address) || typeof b.signature !== "string") throw new HttpError(400, "Bad request.");
-  const r = await verifyChallenge(b.address, b.signature);
+  const r = verifyChallenge(b.address, b.signature);
   if (!r) throw new HttpError(401, "That signature did not check out. Try again.");
   return c.json(r);
+});
+
+// the wallet needs a recent blockhash to build the burn transaction, and the browser should not need its own RPC
+app.get("/api/solana/blockhash", async (c) => {
+  me(c);
+  guard(c, "bh", 30);
+  const r = await rpc<{ value: { blockhash: string; lastValidBlockHeight: number } }>("getLatestBlockhash", [{ commitment: "confirmed" }]);
+  return c.json(r.value);
 });
 
 // ---- tokens ----
@@ -108,8 +117,8 @@ app.get("/api/tokens/check", async (c) => {
   me(c);
   guard(c, "check", 40);
   const a = c.req.query("address");
-  if (!isAddress(a)) throw new HttpError(400, "That is not a contract address. It starts with 0x and has 40 more characters.");
-  if (!ix.ready) throw new HttpError(503, "Kennel is still catching up with the chain. Try again in a minute.");
+  if (!isAddress(a)) throw new HttpError(400, "That is not a token address. Paste the mint address of a pump.fun token.");
+  if (!ix.ready) throw new HttpError(503, "Kennel is still connecting to the live feed. Try again in a minute.");
   return c.json(await checkToken(db, ix, a));
 });
 
@@ -135,9 +144,9 @@ app.put("/api/agents/:id/settings", async (c) => {
 app.post("/api/agents/:id/train", async (c) => {
   const owner = me(c);
   guard(c, "train", 20);
-  if (!ix.ready) throw new HttpError(503, "Kennel is still catching up with the chain. Try again in a minute.");
+  if (!ix.ready) throw new HttpError(503, "Kennel is still connecting to the live feed. Try again in a minute.");
   const b = await body(c);
-  if (!isAddress(b.token)) throw new HttpError(400, "That is not a contract address.");
+  if (!isAddress(b.token)) throw new HttpError(400, "That is not a token address.");
   return c.json(await createOrder(db, ix, owner, c.req.param("id"), b.token));
 });
 app.post("/api/agents/:id/test", (c) => {
@@ -163,8 +172,8 @@ app.post("/api/agents/:id/ask", async (c) => {
   const owner = me(c);
   guard(c, "ask", 30);
   const b = await body(c);
-  if (!isAddress(b.token)) throw new HttpError(400, "That is not a contract address. It starts with 0x and has 40 more characters.");
-  if (!ix.ready) throw new HttpError(503, "Kennel is still catching up with the chain. Try again in a minute.");
+  if (!isAddress(b.token)) throw new HttpError(400, "That is not a token address. Paste the mint address of a pump.fun token.");
+  if (!ix.ready) throw new HttpError(503, "Kennel is still connecting to the live feed. Try again in a minute.");
   return c.json(await askAgent(db, ix, owner, c.req.param("id"), b.token));
 });
 app.get("/api/agents/:id/alerts", (c) => c.json({ alerts: listAlerts(db, me(c), c.req.param("id"), Number(c.req.query("limit") ?? 50)) }));

@@ -5,7 +5,7 @@ import type { Series } from "./series.ts";
 export const FEATURES = [
   "age_min", "trades_total", "trades_1m", "trades_5m", "trades_30m", "buyers_total", "new_buyers_5m", "buy_ratio_5m",
   "net_flow_5m", "net_flow_30m", "avg_buy_5m", "max_buy_5m", "progress", "ret_5m", "ret_30m", "ret_120m", "from_peak",
-  "top1_share", "top5_share", "holders", "snipe_share_30m", "deployer_share", "deployer_sells", "hour_sin", "hour_cos",
+  "top1_share", "top5_share", "holders", "deployer_share", "deployer_sells", "hour_sin", "hour_cos",
   "act_ratio", "burst_1m", "newbuyer_ratio", "flow_per_trade",
 ] as const;
 export const NF = FEATURES.length;
@@ -13,8 +13,8 @@ const ix = (names: string[]) => names.map((n) => FEATURES.indexOf(n as (typeof F
 /** Scale-free signals only: rates, ratios and price moves. Cumulative counters (total trades, total buyers, holders) are left out,
  *  because with few tokens a model memorises them and learns which token it is looking at instead of what a token is doing. */
 export const FEATURE_SETS: Record<string, number[]> = {
-  all: ix(FEATURES.slice(0, 25) as unknown as string[]),
-  general: ix(["age_min", "trades_1m", "trades_5m", "trades_30m", "act_ratio", "burst_1m", "new_buyers_5m", "newbuyer_ratio", "buy_ratio_5m", "net_flow_5m", "net_flow_30m", "flow_per_trade", "avg_buy_5m", "max_buy_5m", "progress", "ret_5m", "ret_30m", "ret_120m", "from_peak", "top1_share", "top5_share", "snipe_share_30m", "deployer_share", "deployer_sells"]),
+  all: ix(FEATURES.slice(0, 24) as unknown as string[]),
+  general: ix(["age_min", "trades_1m", "trades_5m", "trades_30m", "act_ratio", "burst_1m", "new_buyers_5m", "newbuyer_ratio", "buy_ratio_5m", "net_flow_5m", "net_flow_30m", "flow_per_trade", "avg_buy_5m", "max_buy_5m", "progress", "ret_5m", "ret_30m", "ret_120m", "from_peak", "top1_share", "top5_share", "deployer_share", "deployer_sells"]),
 };
 export const DEFAULT_SET = "general";
 export const FEATURE_LABELS: Record<string, string> = {
@@ -23,7 +23,7 @@ export const FEATURE_LABELS: Record<string, string> = {
   buyers_total: "distinct buyers so far", new_buyers_5m: "new buyers in the last 5 minutes", buy_ratio_5m: "share of buys in the last 5 minutes", net_flow_5m: "net buying in the last 5 minutes",
   net_flow_30m: "net buying in the last 30 minutes", avg_buy_5m: "average buy size", max_buy_5m: "largest recent buy", progress: "progress toward graduation", ret_5m: "price change over 5 minutes",
   ret_30m: "price change over 30 minutes", ret_120m: "price change over 2 hours", from_peak: "price versus its peak", top1_share: "share held by the largest holder", top5_share: "share held by the top 5 holders",
-  holders: "number of holders", snipe_share_30m: "share of recent buys paying snipe tax", deployer_share: "share held by the deployer", deployer_sells: "sells by the deployer", hour_sin: "time of day", hour_cos: "time of day",
+  holders: "number of holders", deployer_share: "share held by the deployer", deployer_sells: "sells by the deployer", hour_sin: "time of day", hour_cos: "time of day",
 };
 
 const lastLE = (ts: Float64Array, n: number, t: number) => {
@@ -99,12 +99,10 @@ export function buildSamples(s: Series, opts: { horizonH: number; x: number; max
         if ((firstBuy.get(s.recipient[k]) ?? 0) >= T - 300) newB5++;
       } else flow5 -= s.quote[k];
     }
-    let flow30 = 0, buys30 = 0, snipe30 = 0;
+    let flow30 = 0;
     for (let k = i30; k < j; k++) {
       if (s.side[k] === 1) {
         flow30 += s.quote[k];
-        buys30++;
-        if (s.taxRate[k] > 0.0001) snipe30++;
       } else flow30 -= s.quote[k];
     }
     const priceAt = (dt: number) => {
@@ -145,7 +143,6 @@ export function buildSamples(s: Series, opts: { horizonH: number; x: number; max
     x[c++] = top1 / denom;
     x[c++] = top5 / denom;
     x[c++] = holders;
-    x[c++] = buys30 ? snipe30 / buys30 : 0;
     x[c++] = Math.max(0, (balance.get(s.deployer) ?? 0)) / denom;
     x[c++] = depSells;
     x[c++] = Math.sin((hour / 24) * 2 * Math.PI);
@@ -157,13 +154,13 @@ export function buildSamples(s: Series, opts: { horizonH: number; x: number; max
 
     const sample: Sample = { t: T, x };
     if (opts.labelled) {
-      // the label: buying now, could it be sold for at least +x within the horizon, after fees and tax paid both ways?
+      // the label: buying now, could it be sold for at least +x within the horizon, after fees and an allowance for extra costs, paid both ways?
       const end = T + opts.horizonH * 3600;
       if (end > endTs + 1 && T + opts.horizonH * 3600 > Date.now() / 1000 - 600) continue; // the future is not known yet
-      // the cost of a round trip: fee and tax rate, estimated from the last few trades
+      // the cost of a round trip: the fee rate of the last few trades, plus an allowance for priority fees, tips and slippage that no trade event shows
       let cost = 0, cn = 0;
       for (let k = Math.max(0, last - 4); k <= last; k++) { cost += s.feeRate[k] + s.taxRate[k]; cn++; }
-      const cr = Math.min(0.12, cn ? cost / cn : 0.03);
+      const cr = Math.min(0.12, (cn ? cost / cn : 0.03) + s.extraCost);
       const entry = p * (1 + cr);
       // the best sustained exit: the highest 5-minute median price with at least two trades in it
       let best = 0;

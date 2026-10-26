@@ -10,7 +10,7 @@ export type Eligibility = { ok: boolean; reason?: string; token?: string; name: 
 export async function checkToken(db: Db, ix: Indexer, address: string): Promise<Eligibility> {
   const none = (reason: string): Eligibility => ({ ok: false, reason, name: "", symbol: "", trades: 0, ageHours: 0, graduated: false, launchedAt: 0, activeMinutes: 0 });
   const t = await ix.resolveToken(address);
-  if (!t) return none("That is not a token launched on Pons, or we cannot find it yet.");
+  if (!t) return none("That is not a token launched on pump.fun, or we cannot find it yet.");
   await ix.backfillToken(t.address);
   const [meta, graduated] = await Promise.all([ix.meta(t.address), ix.graduated(t.address)]);
   const trades = (db.prepare("SELECT COUNT(*) AS n FROM trades WHERE curve = ?").get(t.curve) as { n: number }).n;

@@ -42,7 +42,7 @@ function fire(items: { token: string; t: number; score: number; y: number; ret: 
 export function pickPool(db: Db, agentId: string, version: number, exclude: string[], size: number, latestTrainLaunch: number): { tokens: string[]; outOfTime: number; later: Set<string> } {
   const now = Math.floor(Date.now() / 1000);
   const cutoff = now - (24 + CFG.objective.hours + 1) * 3600;
-  const ex = new Set(exclude.map((s) => s.toLowerCase()));
+  const ex = new Set(exclude);
   const rows = db
     .prepare(
       `SELECT t.address, t.launched_ts FROM tokens t

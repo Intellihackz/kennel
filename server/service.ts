@@ -7,7 +7,8 @@ import { checkToken, type Eligibility } from "./eligibility.ts";
 import type { Indexer } from "./indexer.ts";
 import { enqueue } from "./jobs.ts";
 import type { AgentModel } from "./ml/train.ts";
-import { orderAmount, tokenDecimals, verifyTransfer } from "./payments.ts";
+import { orderAmount, tokenDecimals, tokenProgram, verifyBurn } from "./payments.ts";
+import { isSignature } from "./solana.ts";
 import { checkWebhookUrl } from "./webhook.ts";
 
 export type AgentRow = { id: string; owner: string; name: string; created_at: number; settings: string; model: string | null; model_version: number; deleted: number };
@@ -65,7 +66,7 @@ export function updateSettings(db: Db, owner: string, id: string, body: Record<s
   for (const k of ["perTrade", "daily"] as const) {
     if (body[k] === undefined) continue;
     const v = String(body[k]);
-    if (!/^\d{0,3}(\.\d{0,6})?$/.test(v) || Number(v) > 100) throw new HttpError(400, "Caps are amounts of ETH, up to 100.");
+    if (!/^\d{0,3}(\.\d{0,6})?$/.test(v) || Number(v) > 100) throw new HttpError(400, "Caps are amounts of SOL, up to 100.");
     cur[k] = v;
   }
   db.prepare("UPDATE agents SET settings = ? WHERE id = ?").run(JSON.stringify(cur), id);
@@ -115,13 +116,13 @@ export type OrderRow = { id: string; agent_id: string; owner: string; token: str
 
 const orderView = (o: OrderRow, withCredit = false) => ({
   id: o.id, agentId: o.agent_id, token: o.token, amount: o.amount, decimals: tokenDecimals(), status: o.status, expiresAt: o.expires_at, error: o.error,
-  platformToken: CFG.platformToken || null, burnAddress: CFG.burnAddress, mock: CFG.mockPayments, price: CFG.pricePerToken, credit: withCredit,
+  platformToken: CFG.platformToken || null, tokenProgram: tokenProgram(), mock: CFG.mockPayments, price: CFG.pricePerToken, credit: withCredit,
 });
 
 export async function createOrder(db: Db, ix: Indexer, owner: string, agentId: string, tokenAddr: string) {
   if (!CFG.mockPayments && !CFG.platformToken) throw new HttpError(503, "Payments are not set up yet, so tokens cannot be added right now.");
   const a = getOwned(db, owner, agentId);
-  const addr = tokenAddr.toLowerCase();
+  const addr = tokenAddr; // base58 is case-sensitive
   const have = db.prepare("SELECT 1 FROM agent_tokens WHERE agent_id = ? AND token = ?").get(a.id, addr);
   if (have) throw new HttpError(409, "This agent has already learned from that token.");
   const total = (db.prepare("SELECT COUNT(*) AS c FROM agent_tokens WHERE agent_id = ?").get(a.id) as { c: number }).c;
@@ -158,10 +159,10 @@ export async function claimOrder(db: Db, ix: Indexer, owner: string, id: string,
       if (!c) throw new HttpError(400, "Send the transaction hash of your payment.");
       credit = c.id;
     } else {
-      if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new HttpError(400, "That is not a transaction hash.");
-      const used = db.prepare("SELECT 1 FROM orders WHERE tx_hash = ?").get(txHash.toLowerCase());
+      if (!isSignature(txHash)) throw new HttpError(400, "That is not a transaction signature.");
+      const used = db.prepare("SELECT 1 FROM orders WHERE tx_hash = ?").get(txHash);
       if (used) throw new HttpError(409, "That transaction has already paid for an order.");
-      const v = await verifyTransfer(owner, txHash.toLowerCase(), o.amount);
+      const v = await verifyBurn(owner, txHash, o.amount);
       if (!v.ok) throw new HttpError(402, v.error);
     }
   }
@@ -170,7 +171,7 @@ export async function claimOrder(db: Db, ix: Indexer, owner: string, id: string,
     // a verified burn for a token that can no longer be used cannot be returned, so it becomes a credit for the owner's next token
     if (!CFG.mockPayments && txHash) {
       db.exec("BEGIN");
-      db.prepare("UPDATE orders SET status = 'credit_issued', tx_hash = ?, error = ? WHERE id = ?").run(txHash.toLowerCase(), el.reason ?? "ineligible after payment", o.id);
+      db.prepare("UPDATE orders SET status = 'credit_issued', tx_hash = ?, error = ? WHERE id = ?").run(txHash, el.reason ?? "ineligible after payment", o.id);
       db.prepare("INSERT INTO credits (owner, reason, created_at) VALUES (?,?,?)").run(owner, el.reason ?? "token no longer usable after payment", now());
       db.exec("COMMIT");
     }
@@ -178,7 +179,7 @@ export async function claimOrder(db: Db, ix: Indexer, owner: string, id: string,
   }
   db.exec("BEGIN");
   try {
-    const claimed = db.prepare("UPDATE orders SET status = 'training', tx_hash = ? WHERE id = ? AND status = 'pending'").run(txHash ? txHash.toLowerCase() : null, o.id);
+    const claimed = db.prepare("UPDATE orders SET status = 'training', tx_hash = ? WHERE id = ? AND status = 'pending'").run(txHash ?? null, o.id);
     if (credit !== null && Number(claimed.changes) > 0) {
       const used = db.prepare("UPDATE credits SET used_order = ? WHERE id = ? AND used_order IS NULL").run(o.id, credit);
       if (Number(used.changes) === 0) throw new HttpError(409, "That credit was just used. Try again.");
@@ -223,7 +224,6 @@ export function listAlerts(db: Db, owner: string, id: string, limit = 50) {
 export type { Eligibility };
 
 // ---------------- burns ----------------
-const E = 10n ** 18n;
 /** Totals for the public fees and burns page. Aggregates only: nothing here says who burned what, or for which token. */
 export function burnStats(db: Db) {
   const rows = db.prepare("SELECT amount, created_at FROM orders WHERE tx_hash IS NOT NULL AND status IN ('training','done')").all() as { amount: string; created_at: number }[];
@@ -247,7 +247,7 @@ export function burnStats(db: Db) {
   const credits = db.prepare("SELECT COUNT(*) AS c FROM credits").get() as { c: number };
   return {
     totalBurned: Number(total / unit), last24h: Number(last24 / unit), tokensTrained: rows.length, perToken: CFG.pricePerToken, days: out,
-    platformToken: CFG.platformToken || null, burnAddress: CFG.burnAddress, creditsIssued: credits.c, live: !!CFG.platformToken && !CFG.mockPayments,
+    platformToken: CFG.platformToken || null, creditsIssued: credits.c, live: !!CFG.platformToken && !CFG.mockPayments,
   };
 }
 
@@ -269,4 +269,3 @@ export function myBurns(db: Db, owner: string) {
     total: rows.filter((r) => r.tx_hash).reduce((a, r) => a + Number(BigInt(r.amount) / unit), 0),
   };
 }
-void E;

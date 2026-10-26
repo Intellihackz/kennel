@@ -17,14 +17,14 @@ export type AgentView = {
   settings: Settings; alertCount: number; lastError: string | null;
 };
 export type Config = {
-  chainId: number; platformToken: string | null; burnAddress: string; decimals: number; pricePerToken: number; minTokens: number; minTrades: number;
+  platformToken: string | null; tokenProgram: string; decimals: number; pricePerToken: number; minTokens: number; minTrades: number;
   minAgeHours: number; minActiveMinutes: number; mockPayments: boolean; objective: { x: number; hours: number }; testGate: "chance" | "rule"; indexerReady: boolean;
 };
 export type Eligibility = { ok: boolean; reason?: string; token?: string; name: string; symbol: string; trades: number; ageHours: number; graduated: boolean; activeMinutes: number };
-export type Order = { id: string; agentId: string; token: string; amount: string; decimals: number; status: string; expiresAt: number; error: string | null; platformToken: string | null; burnAddress: string; mock: boolean; price: number; credit: boolean };
+export type Order = { id: string; agentId: string; token: string; amount: string; decimals: number; status: string; expiresAt: number; error: string | null; platformToken: string | null; tokenProgram: string; mock: boolean; price: number; credit: boolean };
 export type AlertView = { id: number; token: string; curve: string; name: string; symbol: string; at: number; probability: number; reasons: Reason[]; price: string | null; webhook: string | null };
 
-export type Burns = { totalBurned: number; last24h: number; tokensTrained: number; perToken: number; days: { day: string; burned: number }[]; platformToken: string | null; burnAddress: string; creditsIssued: number; live: boolean };
+export type Burns = { totalBurned: number; last24h: number; tokensTrained: number; perToken: number; days: { day: string; burned: number }[]; platformToken: string | null; tokenProgram: string; creditsIssued: number; live: boolean };
 export type MyBurns = { burns: { id: string; token: string; symbol: string; name: string; amount: number; txHash: string | null; at: number; status: string }[]; credits: number; total: number };
 
 export type AskReason = { feature: string; label: string; value: string };
